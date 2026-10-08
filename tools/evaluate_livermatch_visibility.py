@@ -57,6 +57,7 @@ def parse_args() -> argparse.Namespace:
         default=PROJECT / "configs/new_task3_004_002.yaml",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--save-correspondences-dir", type=Path)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--limit", type=int, default=0)
@@ -208,6 +209,25 @@ def main() -> None:
             **prediction_export_fields(details),
         }
         rows.append(row)
+        if args.save_correspondences_dir is not None:
+            args.save_correspondences_dir.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(
+                args.save_correspondences_dir / f"{int(original_indices[index]):05d}.npz",
+                sample=row["sample"],
+                estimated_transform=np.asarray(details["estimated_transform"], dtype=np.float64),
+                gt_transform=np.asarray(oracle, dtype=np.float64),
+                source_points=np.asarray(details["source"], dtype=np.float64),
+                target_points=np.asarray(details["target"], dtype=np.float64),
+                source_corr_points=np.asarray(source_corr, dtype=np.float64) if len(matches) else np.empty((0, 3)),
+                target_corr_points=np.asarray(target_corr, dtype=np.float64) if len(matches) else np.empty((0, 3)),
+                corr_scores=np.empty((0,), dtype=np.float64),
+                has_corr_scores=False,
+                physical_scale_mm=float(details["physical_scale"]),
+                coordinate_frame="network_normalized",
+                source_variable="details['source'][details['matches'][:, 0]]",
+                target_variable="details['target'][details['matches'][:, 1]]",
+                rms_tre_mm=rms_tre,
+            )
         if index == 0 or (index + 1) % args.log_every == 0 or index + 1 == count:
             print(
                 f"[{index + 1}/{count}] {row['sample']} RMS-TRE={rms_tre:.4f} mm "

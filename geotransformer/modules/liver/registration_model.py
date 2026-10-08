@@ -100,6 +100,7 @@ class GeoTransformer(nn.Module):
             feature_dim=cfg.geotransformer.output_dim,
             hidden_dim=cfg.topology_overlap.hidden_dim,
             num_neighbors=cfg.topology_overlap.num_neighbors,
+            use_poincare=cfg.topology_overlap.use_poincare,
             poincare_curvature=cfg.topology_overlap.poincare_curvature,
             dropout=cfg.topology_overlap.dropout,
         ) if self.rtor_enabled else None

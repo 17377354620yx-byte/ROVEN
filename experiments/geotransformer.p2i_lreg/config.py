@@ -108,15 +108,21 @@ def _base_cfg():
 _C = _base_cfg()
 
 
-def make_cfg(architecture="rtor", create_dirs=True):
-    """Return an isolated config for the baseline or RTOR-only experiment."""
-    if architecture not in ("geotransformer", "rtor"):
+def make_cfg(architecture="rtor", create_dirs=True, use_poincare=True):
+    """Return an isolated config for a P2I-LReg architecture."""
+    choices = {
+        "geotransformer": (False, False),
+        "rtor": (True, False),
+        "rtor_a3": (True, True),
+    }
+    if architecture not in choices:
         raise ValueError(f"Unknown architecture: {architecture}")
     cfg = copy.deepcopy(_C)
     cfg.ablation.architecture = architecture
-    cfg.ablation.rtor_enabled = architecture == "rtor"
-    cfg.ablation.a3_enabled = False
-    run_name = os.environ.get("P2I_LREG_RUN_NAME", architecture).strip()
+    cfg.ablation.rtor_enabled, cfg.ablation.a3_enabled = choices[architecture]
+    cfg.topology_overlap.use_poincare = bool(use_poincare)
+    default_name = architecture + ("_no_poincare" if not use_poincare else "")
+    run_name = os.environ.get("P2I_LREG_RUN_NAME", default_name).strip()
     if not run_name or "/" in run_name or "\\" in run_name or run_name in (".", ".."):
         raise ValueError("P2I_LREG_RUN_NAME must be a nonempty directory name")
     cfg.exp_name = f"geotransformer.p2i_lreg.{run_name}"

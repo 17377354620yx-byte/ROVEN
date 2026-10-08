@@ -8,6 +8,7 @@ from visualization.livermatch_style_comparison import (
     METHOD_KEYS,
     SOURCE_COLOR,
     TARGET_COLOR,
+    _sample_directory,
     apply_transform,
     build_panel_specs,
     marker_rms_tre,
@@ -61,7 +62,7 @@ def _write_vitro_case(root: Path, name: str):
 
 
 def _write_prediction(root: Path, sample: str, method: str, *, failed=False):
-    directory = root / "predictions/in_vitro" / Path(sample).stem
+    directory = root / "predictions/in_vitro" / _sample_directory(sample)
     directory.mkdir(parents=True, exist_ok=True)
     metadata = {
         "method": method,
@@ -72,7 +73,7 @@ def _write_prediction(root: Path, sample: str, method: str, *, failed=False):
         "checkpoint": f"/{method}.pth",
     }
     arrays = {
-        "rms_tre_mm": np.asarray(0.0),
+        "rms_tre_mm": np.asarray(5.0 / 6.0 if not failed else 0.0),
         "status": np.asarray(metadata["status"]),
         "metadata_json": np.asarray(json.dumps(metadata)),
     }

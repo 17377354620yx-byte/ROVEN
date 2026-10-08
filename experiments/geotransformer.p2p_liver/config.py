@@ -29,7 +29,8 @@ _C.feature_dir = osp.join(_C.output_dir, 'features')
 _C.registration_dir = osp.join(_C.output_dir, 'registration')
 
 _DATA_ROOT = os.environ.get('P2P_DATA_ROOT', '/mnt/data3/yangx/P2P/Dataset')
-_C.data.train_root = osp.join(_DATA_ROOT, 'Deform_mesh_npz')
+_TRAIN_DATA_ROOT = os.environ.get('P2P_TRAIN_DATA_ROOT', _DATA_ROOT)
+_C.data.train_root = osp.join(_TRAIN_DATA_ROOT, 'Deform_mesh_npz')
 _C.data.train_list = osp.join(_C.data.train_root, 'dict.json')
 _C.data.test_root = osp.join(_DATA_ROOT, 'Deform_mesh_npz_test', 'Test')
 _C.data.test_list = osp.join(_DATA_ROOT, 'Deform_mesh_npz_test', 'list.npz')
@@ -60,7 +61,8 @@ _C.model.ground_truth_matching_radius = 0.04
 _C.fine_loss.positive_radius = 0.04
 
 
-def make_cfg(architecture='rtor_a3', registration_profile='legacy', dual_encoder=False, interaction_profile='legacy'):
+def make_cfg(architecture='rtor_a3', registration_profile='legacy', dual_encoder=False,
+             interaction_profile='legacy', use_poincare=True):
     """Return a fresh P2P RTOR+A3 configuration."""
     cfg = copy.deepcopy(_C)
     choices = {'geotransformer': (False, False), 'rtor_only': (True, False),
@@ -69,6 +71,7 @@ def make_cfg(architecture='rtor_a3', registration_profile='legacy', dual_encoder
         raise ValueError(f'Unknown architecture: {architecture}')
     cfg.ablation.architecture = architecture
     cfg.ablation.rtor_enabled, cfg.ablation.a3_enabled = choices[architecture]
+    cfg.topology_overlap.use_poincare = bool(use_poincare)
     if registration_profile not in ('legacy', 'tight', 'robust'):
         raise ValueError(f'Unknown registration profile: {registration_profile}')
     cfg.model.registration_profile = registration_profile
@@ -90,6 +93,8 @@ def make_cfg(architecture='rtor_a3', registration_profile='legacy', dual_encoder
     elif registration_profile == 'robust':
         cfg.fine_matching.robust_refinement_radius = 0.04
     default_name = architecture + ('_dual' if dual_encoder else '')
+    if not cfg.topology_overlap.use_poincare:
+        default_name += '_no_poincare'
     if interaction_profile != 'legacy':
         default_name += '_' + interaction_profile
     if registration_profile != 'legacy':

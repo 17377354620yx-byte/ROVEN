@@ -59,7 +59,11 @@ def run_check(dataset, num_samples, seed, min_improved_fraction, max_median_rati
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--architecture", choices=["geotransformer", "rtor"], default="rtor")
+    parser.add_argument(
+        "--architecture",
+        choices=["geotransformer", "rtor", "rtor_a3"],
+        default="rtor",
+    )
     parser.add_argument("--data_root", default=None)
     parser.add_argument("--num_samples", type=int, default=100)
     parser.add_argument("--seed", type=int, default=7351)

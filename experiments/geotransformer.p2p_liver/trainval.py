@@ -42,6 +42,7 @@ class Trainer(EpochBasedTrainer):
         self.logger.info(f"Data loader created: {time.time() - start:.3f}s collapsed.")
         self.logger.info(f"Calibrate neighbors: {limits}.")
         protocol = dict(architecture=cfg.ablation.architecture,
+                        use_poincare=bool(cfg.topology_overlap.use_poincare),
                         dual_encoder=cfg.model.dual_encoder,
                         registration_profile=cfg.model.registration_profile,
                         interaction_profile=cfg.model.interaction_profile,
@@ -69,9 +70,13 @@ class Trainer(EpochBasedTrainer):
         state_dict = torch.load(snapshot, map_location=torch.device("cpu"))
         model_dict = state_dict["model"]
         if not self.args.warm_start:
-            saved_profile = state_dict.get('metadata', {}).get('p2p_protocol', {}).get('interaction_profile')
+            saved_protocol = state_dict.get('metadata', {}).get('p2p_protocol', {})
+            saved_profile = saved_protocol.get('interaction_profile')
             if saved_profile is not None and saved_profile != self.cfg.model.interaction_profile:
                 raise ValueError('Resume must use the checkpoint interaction profile; use --warm_start for an intentional new run')
+            saved_poincare = saved_protocol.get('use_poincare')
+            if saved_poincare is not None and bool(saved_poincare) != bool(self.cfg.topology_overlap.use_poincare):
+                raise ValueError('Resume must use the checkpoint Poincare setting; use --warm_start for an intentional new run')
             self.best_validation_error = state_dict.get('metadata', {}).get('best_validation_error', float('inf'))
             strict_dict = (OrderedDict(('module.' + k, v) for k, v in model_dict.items())
                            if fix_prefix and self.distributed else model_dict)
@@ -149,6 +154,7 @@ def main():
     parser.add_argument('--registration_profile', choices=['legacy', 'tight', 'robust'], default='legacy')
     parser.add_argument('--dual_encoder', action='store_true')
     parser.add_argument('--interaction_profile', choices=['legacy', 'cooperative', 'soft_overlap'], default='legacy')
+    parser.add_argument('--disable_poincare', action='store_true')
     parser.add_argument('--lr', type=float, default=None)
     parser.add_argument("--train_limit", type=int, default=0)
     parser.add_argument("--validation_size", type=int, default=None)
@@ -161,7 +167,13 @@ def main():
     known, _ = parser.parse_known_args()
     if known.train_limit > 0:
         os.environ["P2P_TRAIN_LIMIT"] = str(known.train_limit)
-    cfg = make_cfg(known.architecture, known.registration_profile, known.dual_encoder, known.interaction_profile)
+    cfg = make_cfg(
+        known.architecture,
+        known.registration_profile,
+        known.dual_encoder,
+        known.interaction_profile,
+        use_poincare=not known.disable_poincare,
+    )
     if known.lr is not None:
         if known.lr <= 0:
             parser.error('--lr must be positive')

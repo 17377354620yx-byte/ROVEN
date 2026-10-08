@@ -90,6 +90,7 @@ _C.geotransformer.reduction_a = 'max'
 _C.topology_overlap = edict()
 _C.topology_overlap.hidden_dim = 128
 _C.topology_overlap.num_neighbors = 8
+_C.topology_overlap.use_poincare = True
 _C.topology_overlap.poincare_curvature = 1.0
 _C.topology_overlap.dropout = 0.1
 _C.topology_overlap.score_floor = 0.05
@@ -145,6 +146,8 @@ def _validate(cfg) -> None:
         raise ValueError('topology_overlap.hidden_dim must be positive')
     if cfg.topology_overlap.num_neighbors <= 0:
         raise ValueError('topology_overlap.num_neighbors must be positive')
+    if not isinstance(cfg.topology_overlap.use_poincare, bool):
+        raise ValueError('topology_overlap.use_poincare must be boolean')
     if not 0.0 <= cfg.topology_overlap.score_floor < 1.0:
         raise ValueError('topology_overlap.score_floor must be in [0, 1)')
     if cfg.topology_overlap.score_power <= 0:

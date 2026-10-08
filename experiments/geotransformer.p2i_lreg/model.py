@@ -1,16 +1,23 @@
-"""Model entry points for the two fair P2I-LReg rigid experiments."""
+"""Model entry points for the P2I-LReg rigid experiments."""
 
 from geotransformer.modules.liver.registration_model import GeoTransformer
 
 
 def create_model(cfg):
-    if cfg.ablation.architecture not in ("geotransformer", "rtor"):
+    expected_modules = {
+        "geotransformer": (False, False),
+        "rtor": (True, False),
+        "rtor_a3": (True, True),
+    }
+    architecture = cfg.ablation.architecture
+    if architecture not in expected_modules:
         raise ValueError(f"unsupported P2I-LReg architecture: {cfg.ablation.architecture}")
-    if bool(cfg.ablation.a3_enabled):
-        raise ValueError("A3 must remain disabled in the P2I-LReg rigid protocol")
-    expected_rtor = cfg.ablation.architecture == "rtor"
-    if bool(cfg.ablation.rtor_enabled) != expected_rtor:
-        raise ValueError("architecture and rtor_enabled disagree")
+    expected_rtor, expected_a3 = expected_modules[architecture]
+    if (
+        bool(cfg.ablation.rtor_enabled) != expected_rtor
+        or bool(cfg.ablation.a3_enabled) != expected_a3
+    ):
+        raise ValueError("architecture and enabled modules disagree")
     return GeoTransformer(cfg)
 
 

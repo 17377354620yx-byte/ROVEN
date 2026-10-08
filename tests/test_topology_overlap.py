@@ -72,6 +72,40 @@ def test_rtor_outputs_are_rigid_invariant():
         )
 
 
+def test_disabling_poincare_skips_hyperbolic_path_and_preserves_parameters():
+    enabled = TopologyOverlapRefiner(
+        feature_dim=8,
+        hidden_dim=10,
+        num_neighbors=3,
+        dropout=0.0,
+        use_poincare=True,
+    ).eval()
+    disabled = TopologyOverlapRefiner(
+        feature_dim=8,
+        hidden_dim=10,
+        num_neighbors=3,
+        dropout=0.0,
+        use_poincare=False,
+    ).eval()
+
+    assert {
+        key: value.shape for key, value in enabled.state_dict().items()
+    } == {
+        key: value.shape for key, value in disabled.state_dict().items()
+    }
+
+    def fail_if_called(_features):
+        raise AssertionError("Poincare mapping must be absent in the ablation")
+
+    disabled._poincare_map = fail_if_called
+    ref_points = torch.randn(9, 3)
+    src_points = torch.randn(13, 3)
+    ref_features = torch.randn(9, 8)
+    src_features = torch.randn(13, 8)
+    outputs = disabled(ref_points, src_points, ref_features, src_features)
+    assert all(torch.isfinite(tensor).all() for tensor in outputs[:2])
+
+
 def test_overlap_weights_calibrate_coarse_ranking_without_hard_masking():
     matcher = SuperPointMatching(num_correspondences=1, dual_normalization=False)
     ref_features = torch.tensor([[1.0, 0.0]])

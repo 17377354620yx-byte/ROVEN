@@ -36,7 +36,8 @@ PY_PARE="/home/yangx/miniconda3/envs/pare5090/bin/python"
 PY_GOICP="/home/yangx/miniconda3/envs/goicp_py310/bin/python"
 
 METHODS=(ours geotransformer castv2 dfat lepard lepard_p2p parenet livermatch livermatch_p2p goicp)
-DATASETS=(in_silico in_vitro)
+read -r -a DATASETS <<< "${P2P_DATASETS:-in_silico in_vitro}"
+PREPARED_SELECTION="${P2P_PREPARED_SELECTION:-0}"
 
 checkpoint_for() {
   case "$1" in
@@ -80,10 +81,15 @@ if [[ "$DRY_RUN" == "1" ]]; then
 fi
 
 mkdir -p "$OUTPUT_ROOT" "$RAW_ROOT"
-"$PY_GEO_V2" "$PROJECT_ROOT/tools/prepare_visibility_best3.py" \
-  --result-root "$RESULT_ROOT" \
-  --in-silico-root "$SILICO_ROOT" --in-vitro-root "$VITRO_ROOT" \
-  --output-root "$OUTPUT_ROOT" --top-k 3
+if [[ "$PREPARED_SELECTION" != "1" ]]; then
+  "$PY_GEO_V2" "$PROJECT_ROOT/tools/prepare_visibility_best3.py" \
+    --result-root "$RESULT_ROOT" \
+    --in-silico-root "$SILICO_ROOT" --in-vitro-root "$VITRO_ROOT" \
+    --output-root "$OUTPUT_ROOT" --top-k 3
+elif [[ ! -s "$SELECTION" ]]; then
+  echo "Prepared selection is missing: $SELECTION" >&2
+  exit 1
+fi
 
 SILICO_SUBSET="$OUTPUT_ROOT/subsets/in_silico"
 VITRO_SUBSET="$OUTPUT_ROOT/subsets/in_vitro"
@@ -103,12 +109,19 @@ cache_complete() {
   local dataset="$2"
   local summary="$OUTPUT_ROOT/predictions/$dataset/${method}_summary.json"
   [[ "$FORCE" != "1" && -s "$summary" ]] || return 1
-  "$PY_GEO_V2" - "$summary" "$(checkpoint_for "$method")" <<'PY'
+  "$PY_GEO_V2" - "$summary" "$(checkpoint_for "$method")" "$SELECTION" "$dataset" <<'PY'
 import json, pathlib, sys
 payload=json.loads(pathlib.Path(sys.argv[1]).read_text())
 rows=payload.get("samples", [])
 expected=str(pathlib.Path(sys.argv[2]).resolve())
-valid=len(rows)==3 and all(pathlib.Path(r["prediction_path"]).is_file() for r in rows)
+selection=json.loads(pathlib.Path(sys.argv[3]).read_text())["datasets"][sys.argv[4]]["cases"]
+expected_samples=[str(r["sample"]) for r in selection]
+actual_samples=[str(r.get("sample", "")) for r in rows]
+valid=(
+    len(rows)==len(expected_samples)
+    and actual_samples==expected_samples
+    and all(pathlib.Path(r["prediction_path"]).is_file() for r in rows)
+)
 if sys.argv[2].endswith("go-icp_cython"):
     valid = valid and all(not r.get("checkpoint") for r in rows)
 else:

@@ -37,8 +37,8 @@ class P2ILRegLossTest(unittest.TestCase):
             "src_node_masks": torch.ones(2, dtype=torch.bool),
         }
 
-    def test_overall_loss_is_finite_and_backward_for_both_architectures(self):
-        for architecture in ("geotransformer", "rtor"):
+    def test_overall_loss_is_finite_and_backward_for_all_architectures(self):
+        for architecture in ("geotransformer", "rtor", "rtor_a3"):
             with self.subTest(architecture=architecture):
                 output = self._output()
                 criterion = losses.OverallLoss(config.make_cfg(architecture, create_dirs=False))
@@ -46,7 +46,7 @@ class P2ILRegLossTest(unittest.TestCase):
                 self.assertTrue(torch.isfinite(result["loss"]))
                 result["loss"].backward()
                 self.assertIsNotNone(output["matching_scores"].grad)
-                if architecture == "rtor":
+                if architecture in ("rtor", "rtor_a3"):
                     self.assertIsNotNone(output["ref_overlap_logits"].grad)
                 else:
                     self.assertEqual(float(result["o_loss"]), 0.0)

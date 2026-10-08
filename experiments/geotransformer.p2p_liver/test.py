@@ -27,6 +27,11 @@ from config import make_cfg
 from dataset import test_data_loader
 from model import create_model
 from loss import Evaluator
+from tools.p2p_benchmark_metrics import (
+    METRIC_DEFINITIONS,
+    pose_metrics,
+    summarize_metrics,
+)
 
 
 VISIBILITY_BINS = np.arange(0.2, 1.01, 0.1)
@@ -43,6 +48,7 @@ def make_parser():
     parser.add_argument('--registration_profile', choices=['legacy', 'tight', 'robust'], default='legacy')
     parser.add_argument('--dual_encoder', action='store_true')
     parser.add_argument('--interaction_profile', choices=['legacy', 'cooperative', 'soft_overlap'], default='legacy')
+    parser.add_argument('--disable_poincare', action='store_true')
     return parser
 
 
@@ -59,6 +65,7 @@ def _visibility_summary(values, visibility):
                 'mean_rms_tre_mm': float(selected.mean()) if len(selected) else None,
                 'std_rms_tre_mm': float(selected.std()) if len(selected) else None,
                 'success_rate_20mm': float((selected < 20.0).mean()) if len(selected) else None,
+                'success_rate_5mm': float((selected < 5.0).mean()) if len(selected) else None,
             }
         )
     return rows
@@ -83,6 +90,7 @@ def _method_summary(values, visibility, deformation):
                 'mean_rms_tre_mm': float(selected.mean()) if len(selected) else None,
                 'std_rms_tre_mm': float(selected.std()) if len(selected) else None,
                 'success_rate_20mm': float((selected < 20.0).mean()) if len(selected) else None,
+                'success_rate_5mm': float((selected < 5.0).mean()) if len(selected) else None,
             }
         )
     return {
@@ -90,6 +98,7 @@ def _method_summary(values, visibility, deformation):
         'mean_rms_tre_mm': float(values.mean()),
         'std_rms_tre_mm': float(values.std()),
         'success_rate_20mm': float((values < 20.0).mean()),
+        'success_rate_5mm': float((values < 5.0).mean()),
         'visibility_bins': _visibility_summary(values, visibility),
         'low_visibility_deformation_bins': deformation_rows,
     }
@@ -136,6 +145,10 @@ class Tester(SingleTester):
         """Strictly load an RTOR+A3 checkpoint."""
         self.logger.info(f'Loading from "{snapshot}".')
         state_dict = self._checkpoint
+        saved_protocol = state_dict.get('metadata', {}).get('p2p_protocol', {})
+        saved_poincare = saved_protocol.get('use_poincare')
+        if saved_poincare is not None and bool(saved_poincare) != bool(self.cfg.topology_overlap.use_poincare):
+            raise ValueError('Checkpoint Poincare setting does not match --disable_poincare')
         self.model.load_state_dict(state_dict['model'], strict=True)
         del self._checkpoint
         self.logger.info(f'Checkpoint architecture: {self.cfg.ablation.architecture} (strict match).')
@@ -170,15 +183,24 @@ class Tester(SingleTester):
         else:
             coarse_candidate_correct = rms_tre.new_tensor(False, dtype=torch.bool)
         result = self.evaluator(output, data)
+        extended = pose_metrics(
+            output['src_points'],
+            output['ref_points'],
+            output['estimated_transform'],
+            data['transform'],
+            data['physical_scale'],
+        )
         return {
             **result,
+            **extended,
             'RMS_TRE_mm': rms_tre,
+            'SR_5mm': (rms_tre < 5.0).float(),
             'SR_20mm': (rms_tre < 20.0).float(),
-            'RRE': rre,
-            'RTE': rte,
+            'RRE_normalized_pose_deg': rre,
+            'RTE_normalized': rte,
             'coarse_candidate_correct': coarse_candidate_correct.float(),
             'lgr_failed_given_correct_coarse': (
-                coarse_candidate_correct & (rms_tre >= 20.0)
+                coarse_candidate_correct & (rms_tre >= 5.0)
             ).float(),
         }
 
@@ -210,12 +232,22 @@ class Tester(SingleTester):
                 'deformation_mm': float(self.deformation[index]),
                 'rms_tre_mm': rms_tre,
                 'success_20mm': int(rms_tre < 20.0),
-                'rre_deg': float(result['RRE'].detach().cpu()),
-                'rte': float(result['RTE'].detach().cpu()),
-                'pir': float(result['PIR']),
-                'ir': float(result['IR']),
-                'mean_point_displacement': float(result['RMSE']),
-                'rr': float(result['RR']),
+                'success_5mm': int(rms_tre < 5.0),
+                'SR_5mm': float(result['SR_5mm']),
+                'SR_20mm': float(result['SR_20mm']),
+                'PIR': float(result['PIR']),
+                'IR': float(result['IR']),
+                'RRE': float(result['RRE']),
+                'RTE': float(result['RTE']),
+                'RMSE': float(result['RMSE']),
+                'RR': float(result['RR']),
+                'RR_5deg_5mm': float(result['RR_5deg_5mm']),
+                'RR_legacy_15deg_rte0.3': float(result['RR_legacy_15deg_rte0.3']),
+                'r_rmse': float(result['r_rmse']),
+                'r_mae': float(result['r_mae']),
+                't_rmse': float(result['t_rmse']),
+                't_mae': float(result['t_mae']),
+                'chamfer_dist': float(result['chamfer_dist']),
                 'coarse_candidate_correct': int(result['coarse_candidate_correct']),
                 'lgr_failed_given_correct_coarse': int(
                     result['lgr_failed_given_correct_coarse']
@@ -233,6 +265,16 @@ class Tester(SingleTester):
                 osp.join(self.cfg.registration_dir, f'{index:05d}.npz'),
                 sample=data['sample_name'],
                 estimated_transform=release_cuda(output['estimated_transform']),
+                gt_transform=release_cuda(data['transform']),
+                source_points=release_cuda(output['src_points']),
+                target_points=release_cuda(output['ref_points']),
+                source_corr_points=release_cuda(output['src_corr_points']),
+                target_corr_points=release_cuda(output['ref_corr_points']),
+                corr_scores=release_cuda(output['corr_scores']),
+                physical_scale_mm=float(data['physical_scale']),
+                coordinate_frame='network_normalized',
+                source_variable="output['src_corr_points']",
+                target_variable="output['ref_corr_points']",
                 rms_tre_mm=rms_tre,
             )
 
@@ -246,12 +288,12 @@ class Tester(SingleTester):
         )
         summary.update(
             {
-                'mean_rre_deg': float(np.mean([row['rre_deg'] for row in self.records])),
-                'mean_rte': float(np.mean([row['rte'] for row in self.records])),
-                'rr': float(np.mean([row['rr'] for row in self.records])),
-                'mean_pir': float(np.mean([row['pir'] for row in self.records])),
-                'mean_ir': float(np.mean([row['ir'] for row in self.records])),
-                'mean_point_displacement': float(np.mean([row['mean_point_displacement'] for row in self.records])),
+                'mean_rre_deg': float(np.mean([row['RRE'] for row in self.records])),
+                'mean_rte_mm': float(np.mean([row['RTE'] for row in self.records])),
+                'rr': float(np.mean([row['RR'] for row in self.records])),
+                'mean_pir': float(np.mean([row['PIR'] for row in self.records])),
+                'mean_ir': float(np.mean([row['IR'] for row in self.records])),
+                'rmse_mm': float(np.mean([row['RMSE'] for row in self.records])),
                 'coarse_candidate_recall': float(
                     np.mean([row['coarse_candidate_correct'] for row in self.records])
                 ),
@@ -262,7 +304,7 @@ class Tester(SingleTester):
                 ),
                 'coarse_wrong_failure_count': int(
                     np.sum([
-                        (not row['success_20mm']) and (not row['coarse_candidate_correct'])
+                        (not row['success_5mm']) and (not row['coarse_candidate_correct'])
                         for row in self.records
                     ])
                 ),
@@ -270,7 +312,7 @@ class Tester(SingleTester):
         )
         payload = {
             'metric_schema_version': 3,
-            'metric_note': 'RR uses mean normalized source displacement < eval.rmse_threshold; SR@20mm uses volumetric RMS-TRE. Historical GeoTransformer RMSE is mean point displacement, not root mean square.',
+            'metric_note': 'Primary success is SR@5mm. RR requires RRE < 5 degrees and RTE < 5 mm. SR@20mm is retained only as a legacy endpoint.',
             'protocol': f"P2P paper {self.args.dataset.replace('_', '-')} rigid registration",
             'metric': 'RMS-TRE on paired volumetric fiducials, millimetres',
             'checkpoint': osp.abspath(self.args.snapshot),
@@ -281,6 +323,7 @@ class Tester(SingleTester):
             'fine_matching': dict(self.cfg.fine_matching),
             'noise_mm': None if self.args.noise == 'none' else int(self.args.noise),
             'rtor': {
+                'use_poincare': bool(self.cfg.topology_overlap.use_poincare),
                 'num_neighbors': int(self.cfg.topology_overlap.num_neighbors),
                 'score_floor': float(self.cfg.topology_overlap.score_floor),
                 'focus': 'complete source only',
@@ -290,6 +333,8 @@ class Tester(SingleTester):
             },
             'evaluated_samples': int(len(values)),
             'method': summary,
+            'test_metrics': summarize_metrics(self.records),
+            'metric_definitions': METRIC_DEFINITIONS,
             'samples': self.records,
         }
         output_path = osp.abspath(self.output_path)
@@ -304,7 +349,7 @@ class Tester(SingleTester):
         np.save(osp.splitext(output_path)[0] + '_rms_tre_mm.npy', values)
         self.logger.critical(
             f'RTOR metrics: RMS-TRE={values.mean():.4f}+/-{values.std():.4f} mm, '
-            f'SR@20mm={(values < 20).mean():.4f}'
+            f'SR@5mm={(values < 5).mean():.4f}, legacy SR@20mm={(values < 20).mean():.4f}'
         )
         self.logger.info(f'Results written to {output_path} and {csv_path}')
 
@@ -314,7 +359,13 @@ def main():
     known, _ = parser.parse_known_args()
     if known.test_limit > 0:
         os.environ['P2P_TEST_LIMIT'] = str(known.test_limit)
-    cfg = make_cfg(known.architecture, known.registration_profile, known.dual_encoder, known.interaction_profile)
+    cfg = make_cfg(
+        known.architecture,
+        known.registration_profile,
+        known.dual_encoder,
+        known.interaction_profile,
+        use_poincare=not known.disable_poincare,
+    )
     Tester(cfg, parser).run()
 
 

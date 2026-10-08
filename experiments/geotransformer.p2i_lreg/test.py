@@ -41,6 +41,8 @@ def evaluate(cfg, snapshot, methods, topks, limit, output_path):
     metadata = _load_checkpoint(model, snapshot)
     if metadata.get("architecture", cfg.ablation.architecture) != cfg.ablation.architecture:
         raise ValueError("checkpoint architecture does not match --architecture")
+    if metadata.get("use_poincare", cfg.topology_overlap.use_poincare) != cfg.topology_overlap.use_poincare:
+        raise ValueError("checkpoint Poincare setting does not match --disable_poincare")
     if "neighbor_limits" in metadata:
         cfg.data.neighbor_limits = metadata["neighbor_limits"]
     loader, limits = test_data_loader(cfg, limit=limit)
@@ -112,14 +114,22 @@ def evaluate(cfg, snapshot, methods, topks, limit, output_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--architecture", choices=["geotransformer", "rtor"], required=True)
+    parser.add_argument(
+        "--architecture",
+        choices=["geotransformer", "rtor", "rtor_a3"],
+        required=True,
+    )
     parser.add_argument("--snapshot", required=True)
+    parser.add_argument("--disable_poincare", action="store_true")
     parser.add_argument("--estimators", nargs="+", choices=["lgr", "weighted_svd", "ransac_50k"], default=["lgr", "weighted_svd", "ransac_50k"])
     parser.add_argument("--topk", nargs="+", type=int, default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
-    cfg = make_cfg(args.architecture)
+    cfg = make_cfg(
+        args.architecture,
+        use_poincare=not args.disable_poincare,
+    )
     topks = args.topk or list(cfg.protocol.topk)
     output = args.output or osp.join(cfg.output_dir, "test_summary.json")
     payload = evaluate(cfg, args.snapshot, args.estimators, topks, args.limit, output)

@@ -24,6 +24,7 @@ class TopologyOverlapRefiner(nn.Module):
         feature_dim: int,
         hidden_dim: int = 128,
         num_neighbors: int = 8,
+        use_poincare: bool = True,
         poincare_curvature: float = 1.0,
         dropout: float = 0.0,
     ) -> None:
@@ -37,6 +38,7 @@ class TopologyOverlapRefiner(nn.Module):
         self.feature_dim = int(feature_dim)
         self.hidden_dim = int(hidden_dim)
         self.num_neighbors = int(num_neighbors)
+        self.use_poincare = bool(use_poincare)
         self.poincare_curvature = float(poincare_curvature)
 
         self.input_proj = nn.Linear(self.feature_dim, self.hidden_dim)
@@ -134,11 +136,18 @@ class TopologyOverlapRefiner(nn.Module):
             points, self.num_neighbors
         )
         neighbour_hidden = _gather_rows(hidden, indices)
-        poincare = self._poincare_map(F.normalize(hidden, p=2, dim=-1))
-        neighbour_poincare = _gather_rows(poincare, indices)
-        hyperbolic_distance = self._poincare_distance(
-            poincare, neighbour_poincare
-        )
+        if self.use_poincare:
+            poincare = self._poincare_map(F.normalize(hidden, p=2, dim=-1))
+            neighbour_poincare = _gather_rows(poincare, indices)
+            hyperbolic_distance = self._poincare_distance(
+                poincare, neighbour_poincare
+            )
+        else:
+            # Preserve the five-dimensional edge-gate input and its parameter
+            # count while removing all Poincare information and computation.
+            hyperbolic_distance = relative_distances.new_zeros(
+                relative_distances.shape
+            )
         neighbour_geometry = _gather_rows(geometry, indices)
         edge_geometry = torch.cat(
             [

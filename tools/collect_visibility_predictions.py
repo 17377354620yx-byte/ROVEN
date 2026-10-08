@@ -42,8 +42,11 @@ def _canonical_path(value: str) -> str:
 
 
 def _safe_sample(value: str) -> str:
-    stem = Path(value).stem
-    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in stem)
+    without_suffix = str(Path(value).with_suffix(""))
+    safe = "__".join(
+        "".join(char if char.isalnum() or char in "-_" else "_" for char in part)
+        for part in Path(without_suffix).parts
+    )
     return safe or "sample"
 
 

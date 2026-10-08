@@ -45,13 +45,25 @@ class _AutocastProbe(torch.nn.Module):
 
 
 class P2ILRegModelTest(unittest.TestCase):
+    def test_no_poincare_ablation_reaches_rtor_without_disabling_a3(self):
+        cfg = config.make_cfg(
+            "rtor_a3", create_dirs=False, use_poincare=False
+        )
+        model = model_entry.create_model(cfg)
+        self.assertFalse(cfg.topology_overlap.use_poincare)
+        self.assertFalse(model.topology_overlap_refiner.use_poincare)
+        self.assertIsNotNone(model.fine_local_refiner)
+
     def test_architecture_switches_exactly_requested_modules(self):
         baseline = model_entry.create_model(config.make_cfg("geotransformer", create_dirs=False))
         rtor = model_entry.create_model(config.make_cfg("rtor", create_dirs=False))
+        rtor_a3 = model_entry.create_model(config.make_cfg("rtor_a3", create_dirs=False))
         self.assertIsNone(baseline.topology_overlap_refiner)
         self.assertIsNone(baseline.fine_local_refiner)
         self.assertIsNotNone(rtor.topology_overlap_refiner)
         self.assertIsNone(rtor.fine_local_refiner)
+        self.assertIsNotNone(rtor_a3.topology_overlap_refiner)
+        self.assertIsNotNone(rtor_a3.fine_local_refiner)
 
     def test_test_forward_removes_gt_without_mutating_batch(self):
         recorder = _Recorder().eval()

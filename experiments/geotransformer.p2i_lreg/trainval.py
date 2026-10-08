@@ -56,6 +56,7 @@ class Trainer(EpochBasedTrainer):
             "architecture": cfg.ablation.architecture,
             "rtor_enabled": bool(cfg.ablation.rtor_enabled),
             "a3_enabled": bool(cfg.ablation.a3_enabled),
+            "use_poincare": bool(cfg.topology_overlap.use_poincare),
             "neighbor_limits": [int(value) for value in neighbor_limits],
             "micro_batch_size": int(cfg.train.batch_size),
             "gradient_accumulation_steps": int(cfg.optim.grad_acc_steps),
@@ -88,19 +89,27 @@ class Trainer(EpochBasedTrainer):
 
 def make_parser():
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--architecture", choices=["geotransformer", "rtor"], required=True)
+    parser.add_argument(
+        "--architecture",
+        choices=["geotransformer", "rtor", "rtor_a3"],
+        required=True,
+    )
     parser.add_argument("--max_epoch", type=int, default=None)
     parser.add_argument("--train_limit", type=int, default=None)
     parser.add_argument("--validation_limit", type=int, default=None)
     parser.add_argument("--neighbor_limits", type=int, nargs=4, default=None)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--disable_poincare", action="store_true")
     return parser
 
 
 def main():
     parser = make_parser()
     known, _ = parser.parse_known_args()
-    cfg = make_cfg(known.architecture)
+    cfg = make_cfg(
+        known.architecture,
+        use_poincare=not known.disable_poincare,
+    )
     if known.smoke:
         cfg.optim.max_epoch = 1
         known.train_limit = known.train_limit or 2

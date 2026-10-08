@@ -120,3 +120,34 @@ def test_collect_accepts_lepard_metric_and_sample_field_names(tmp_path: Path):
 
     assert records[0]["sample"] == "nested/case.npz"
     assert records[0]["rms_tre_mm"] == 1.5
+
+
+def test_collect_keeps_nested_samples_with_same_basename_separate(tmp_path: Path):
+    selection = [
+        {"subset_index": 0, "sample": "case_a/00000.npz"},
+        {"subset_index": 1, "sample": "case_b/00000.npz"},
+    ]
+    summary = {
+        "checkpoint": "/model.pth",
+        "samples": [
+            {"index": 0, "sample": selection[0]["sample"], "rms_tre_mm": 1.0},
+            {"index": 1, "sample": selection[1]["sample"], "rms_tre_mm": 2.0},
+        ],
+    }
+
+    records = collect_method_predictions(
+        "ours",
+        "in_silico",
+        selection,
+        {
+            "summary": summary,
+            "transforms": np.stack([transform(1.0), transform(2.0)]),
+            "expected_checkpoint": "/model.pth",
+        },
+        tmp_path,
+    )
+
+    paths = [Path(row["prediction_path"]) for row in records]
+    assert paths[0] != paths[1]
+    assert paths[0].parent.name == "case_a__00000"
+    assert paths[1].parent.name == "case_b__00000"

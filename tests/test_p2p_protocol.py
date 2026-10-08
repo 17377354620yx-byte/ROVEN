@@ -13,6 +13,13 @@ from model import create_model
 
 
 class ProtocolTest(unittest.TestCase):
+    def test_no_poincare_ablation_reaches_rtor_without_changing_other_modules(self):
+        cfg = make_cfg('rtor_a3', use_poincare=False)
+        model = create_model(cfg)
+        self.assertFalse(cfg.topology_overlap.use_poincare)
+        self.assertFalse(model.topology_overlap_refiner.use_poincare)
+        self.assertIsNotNone(model.fine_local_refiner)
+
     def test_disabled_modules_have_no_parameters(self):
         for architecture, rtor, a3 in [('geotransformer', False, False), ('rtor_only', True, False),
                                       ('a3_only', False, True), ('rtor_a3', True, True)]:

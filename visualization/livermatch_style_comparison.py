@@ -70,6 +70,7 @@ def build_panel_specs(
     errors = [None]
     paths = [None]
     checkpoints = [None]
+    expected_rms_values = [None]
     for method in METHOD_KEYS:
         prediction = predictions[method]
         status = str(prediction.get("status", "ok"))
@@ -80,20 +81,28 @@ def build_panel_specs(
         errors.append(prediction.get("error"))
         paths.append(prediction.get("prediction_path"))
         checkpoints.append(prediction.get("checkpoint"))
+        expected_rms_values.append(prediction.get("expected_rms_tre_mm"))
     transforms.append(np.asarray(ground_truth, dtype=np.float64))
     statuses.append("ok")
     errors.append(None)
     paths.append(None)
     checkpoints.append(None)
+    expected_rms_values.append(None)
     registered = [apply_transform(source, transform) for transform in transforms]
     camera = make_camera([target, *registered])
     specs = []
-    for label, transform, points, status, error, path, checkpoint in zip(
-        COLUMN_LABELS, transforms, registered, statuses, errors, paths, checkpoints
+    for label, transform, points, status, error, path, checkpoint, expected_rms in zip(
+        COLUMN_LABELS, transforms, registered, statuses, errors, paths, checkpoints,
+        expected_rms_values,
     ):
         rms = marker_rms_tre(
             source_markers, target_markers, transform, physical_scale
         )
+        if expected_rms is not None and abs(rms - float(expected_rms)) > 0.05:
+            raise ValueError(
+                f"Prediction/sample mismatch for {label}: recomputed RMS-TRE "
+                f"{rms:.6f} mm != stored {float(expected_rms):.6f} mm"
+            )
         specs.append(
             {
                 "label": label,
@@ -112,8 +121,7 @@ def build_panel_specs(
 
 
 def _safe_sample(value: str) -> str:
-    stem = Path(value).stem
-    return "".join(char if char.isalnum() or char in "-_" else "_" for char in stem)
+    return _sample_directory(value)
 
 
 def _sample_directory(value: str) -> str:
@@ -196,6 +204,7 @@ def _load_prediction(path: Path) -> dict:
             "error": metadata.get("error"),
             "checkpoint": metadata.get("checkpoint"),
             "prediction_path": str(path.resolve()),
+            "expected_rms_tre_mm": float(payload["rms_tre_mm"]),
         }
         if "estimated_transform" in payload.files:
             result["transform"] = np.asarray(payload["estimated_transform"])
@@ -411,8 +420,14 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--backend", choices=("auto", "pyvista", "software"), default="auto")
     parser.add_argument("--dpi", type=int, default=500)
+    parser.add_argument(
+        "--dataset", choices=("all", "in_silico", "in_vitro"), default="all"
+    )
     args = parser.parse_args()
     selection = json.loads((args.root / "selection.json").read_text(encoding="utf-8"))
+    datasets = (
+        ("in_silico", "in_vitro") if args.dataset == "all" else (args.dataset,)
+    )
     results = [
         render_dataset_comparison(
             dataset,
@@ -422,7 +437,7 @@ def main() -> None:
             backend=args.backend,
             dpi=args.dpi,
         )
-        for dataset in ("in_silico", "in_vitro")
+        for dataset in datasets
     ]
     _write_audit(args.root, results)
     print(f"Wrote {args.root / 'manifest.json'}")
